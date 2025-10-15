@@ -1,14 +1,10 @@
-import os
 import cv2
 import numpy as np
-from PIL import Image
-import matplotlib.pyplot as plt
-import face_recognition
 from scipy.spatial import distance
+import face_recognition
 import warnings
 
 warnings.filterwarnings('ignore')
-
 
 # =========================
 # Utility Functions
@@ -20,7 +16,6 @@ def eye_aspect_ratio(eye):
     ear = (A + B) / (2.0 * C)
     return ear
 
-
 def mouth_aspect_ratio(mouth):
     A = distance.euclidean(mouth[2], mouth[10])
     B = distance.euclidean(mouth[4], mouth[8])
@@ -28,43 +23,20 @@ def mouth_aspect_ratio(mouth):
     mar = (A + B) / (2.0 * C)
     return mar
 
-
-# =========================
-# Facial Landmark Visualization
-# =========================
-def highlight_facial_points(image_path):
-    image_bgr = cv2.imread(image_path)
-    image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
-
-    face_locations = face_recognition.face_locations(image_rgb, model='hog')
-    for face_location in face_locations:
-        landmarks = face_recognition.face_landmarks(image_rgb, [face_location])[0]
-        for landmark_type, landmark_points in landmarks.items():
-            for (x, y) in landmark_points:
-                cv2.circle(image_rgb, (x, y), 3, (0, 255, 0), -1)
-
-    plt.figure(figsize=(6, 6))
-    plt.imshow(image_rgb)
-    plt.axis('off')
-    plt.show()
-
-
 # =========================
 # Drowsiness Detection Logic
 # =========================
 def process_image(frame):
-    EYE_AR_THRESH = 0.25
+    EYE_AR_THRESH = 0.21  # 👈 tuned threshold
     MOUTH_AR_THRESH = 0.6
-
-    if frame is None:
-        raise ValueError('Image is not found or unable to open')
 
     rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     rgb_frame = np.ascontiguousarray(rgb_frame, dtype=np.uint8)
 
     face_locations = face_recognition.face_locations(rgb_frame, model='hog')
 
-    eye_flag = mouth_flag = False
+    left_eye_flag = right_eye_flag = mouth_flag = False
+    left_ear = right_ear = 0.0
     all_landmarks = []
 
     for face_location in face_locations:
@@ -77,38 +49,35 @@ def process_image(frame):
 
         left_ear = eye_aspect_ratio(left_eye)
         right_ear = eye_aspect_ratio(right_eye)
-        ear = (left_ear + right_ear) / 2.0
         mar = mouth_aspect_ratio(mouth)
 
-        if ear < EYE_AR_THRESH:
-            eye_flag = True
+        if left_ear < EYE_AR_THRESH:
+            left_eye_flag = True
+        if right_ear < EYE_AR_THRESH:
+            right_eye_flag = True
         if mar > MOUTH_AR_THRESH:
             mouth_flag = True
 
-    return eye_flag, mouth_flag, all_landmarks
-
+    return left_eye_flag, right_eye_flag, mouth_flag, all_landmarks, left_ear, right_ear
 
 # =========================
-# Draw Eyelid Outline & Distance
+# Draw Eyelid Outline
 # =========================
 def draw_eyelid_outline(image, eye_points, color=(0, 255, 0)):
-    # Draw outline
     cv2.polylines(image, [eye_points], True, color, 2)
-
-    # Get top and bottom points (for vertical distance)
-    top_idx = 1  # upper eyelid
-    bottom_idx = 5  # lower eyelid
-    top_point = (eye_points[top_idx][0][0], eye_points[top_idx][0][1])
-    bottom_point = (eye_points[bottom_idx][0][0], eye_points[bottom_idx][0][1])
-    # Draw line showing eyelid distance
-    cv2.line(image, top_point, bottom_point, (0, 0, 255), 2)
 
 # =========================
 # Real-time Webcam Loop
 # =========================
-video_cap = cv2.VideoCapture(0)  # webcam
+video_cap = cv2.VideoCapture(0)
 count = 0
 score = 0
+
+# 👇 Keep last detected state between frames
+left_eye_flag = False
+right_eye_flag = False
+mouth_flag = False
+all_landmarks = []
 
 while True:
     success, image = video_cap.read()
@@ -120,31 +89,46 @@ while True:
 
     n = 5  # process every 5 frames
     if count % n == 0:
-        eye_flag, mouth_flag, all_landmarks = process_image(image)
+        left_eye_flag, right_eye_flag, mouth_flag, all_landmarks, left_ear, right_ear = process_image(image)
+        # Debug print
+        print(f"Left EAR: {left_ear:.3f} | Right EAR: {right_ear:.3f}")
 
-        for landmarks in all_landmarks:
-            left_eye = np.array(landmarks['left_eye'], np.int32).reshape((-1, 1, 2))
-            right_eye = np.array(landmarks['right_eye'], np.int32).reshape((-1, 1, 2))
-
-            # draw outlines + red distance line
-            draw_eyelid_outline(image, left_eye)
-            draw_eyelid_outline(image, right_eye)
-
-        # ==== Update score ====
-        if eye_flag or mouth_flag:
+        # Score update
+        if left_eye_flag or right_eye_flag or mouth_flag:
             score += 1
         else:
-            score -= 1
-            if score < 0:
-                score = 0
+            score = max(0, score - 1)
+
+    # Draw landmarks based on last detection
+    for landmarks in all_landmarks:
+        left_eye = np.array(landmarks['left_eye'], np.int32).reshape((-1, 1, 2))
+        right_eye = np.array(landmarks['right_eye'], np.int32).reshape((-1, 1, 2))
+        draw_eyelid_outline(image, left_eye)
+        draw_eyelid_outline(image, right_eye)
+
+    # ==== Display Eye Status ====
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    left_status = "Closed" if left_eye_flag else "Open"
+    right_status = "Closed" if right_eye_flag else "Open"
+
+    cv2.putText(image, f"Left Eye: {left_status}",
+                (10, image.shape[0] - 50), font, 1,
+                (0, 0, 255) if left_eye_flag else (0, 255, 0), 2)
+
+    cv2.putText(image, f"Right Eye: {right_status}",
+                (10, image.shape[0] - 10), font, 1,
+                (0, 0, 255) if right_eye_flag else (0, 255, 0), 2)
 
     # ==== Display Score ====
-    font = cv2.FONT_HERSHEY_SIMPLEX
-    cv2.putText(image, f"Score: {score}", (10, image.shape[0] - 10), font, 1, (0, 255, 0), 2)
+    cv2.putText(image, f"Score: {score}",
+                (image.shape[1] - 200, image.shape[0] - 10), font, 1,
+                (0, 0, 255), 2)
 
     # ==== Alert if Drowsy ====
+    # cv2.putText(img, text, org, fontFace, fontScale, color, thickness)
     if score >= 5:
-        cv2.putText(image, "Drowsy", (image.shape[1] - 150, 40), font, 1, (0, 0, 255), 2)
+        cv2.putText(image, "Drowsy",
+                    (image.shape[1] - 200, 50), font, 1,(0, 0, 255), 2)
 
     cv2.imshow('Drowsiness Detection', image)
 

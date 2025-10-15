@@ -80,10 +80,10 @@ mouth_flag = False
 all_landmarks = []
 
 while True:
-    success, image = video_cap.read()
-    if not success:
-        break
-
+    # success, image = video_cap.read()
+    # if not success:
+    #     break
+    image = cv2.imread('images/test.png')
     image = cv2.resize(image, (800, 500))
     count += 1
 

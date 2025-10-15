@@ -120,15 +120,15 @@ while True:
                 (0, 0, 255) if right_eye_flag else (0, 255, 0), 2)
 
     # ==== Display Score ====
-    cv2.putText(image, f"Score: {score}",
-                (image.shape[1] - 200, image.shape[0] - 10), font, 1,
-                (0, 0, 255), 2)
+    # cv2.putText(image, f"Score: {score}",
+    #             (image.shape[1] - 200, image.shape[0] - 10), font, 1,
+    #             (0, 0, 255), 2)
 
     # ==== Alert if Drowsy ====
     # cv2.putText(img, text, org, fontFace, fontScale, color, thickness)
-    if score >= 5:
-        cv2.putText(image, "Drowsy",
-                    (image.shape[1] - 200, 50), font, 1,(0, 0, 255), 2)
+    # if score >= 5:
+    #     cv2.putText(image, "Drowsy",
+    #                 (image.shape[1] - 200, 50), font, 1,(0, 0, 255), 2)
 
     cv2.imshow('Drowsiness Detection', image)
 
